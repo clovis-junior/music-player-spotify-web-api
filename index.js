@@ -82,7 +82,7 @@ app.use(cors());
 app.use(express.json());
 
 app.get('/login', (req, res) => {
-    const url = inDevelopment ? 'http://localhost:3000' : `${req.protocol}://${req.get('host')}`;
+    const url = inDevelopment ? 'http://localhost' : `${req.protocol}://${req.get('host')}`;
 
     const scope = 'user-read-currently-playing user-read-playback-state';
     const redirect_uri = `${url}/callback`;
@@ -97,7 +97,7 @@ app.get('/login', (req, res) => {
     res.redirect(`https://accounts.spotify.com/authorize?${query}`);
 });
 app.get('/callback', async (req, res) => {
-    const url = inDevelopment ? 'http://localhost:3000' : `${req.protocol}://${req.get('host')}`;
+    const url = inDevelopment ? 'http://localhost' : `${req.protocol}://${req.get('host')}`;
     const basicAuth = Buffer.from(`${process.env.SPOTIFY_API_CLIENT_ID}:${process.env.SPOTIFY_API_CLIENT_SECRET}`).toString('base64');
     const code = req.query.code;
 
@@ -114,7 +114,7 @@ app.get('/callback', async (req, res) => {
             }
         });
 
-        const url = inDevelopment ? 'http://localhost:3000' : 'https://clovis-junior.github.io/music-player-overlay/';
+        const url = inDevelopment ? 'http://localhost:3000' : 'https://clovis-junior.github.io/music-player-overlay';
 
         const id = Date.now().toString();
         updateToken(id, {
