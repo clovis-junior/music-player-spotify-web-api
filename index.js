@@ -5,7 +5,7 @@ const axios = require('axios');
 const cors = require('cors');
 const fs = require('fs');
 
-const inDevelopment = (!process.env.NODE_ENV || process.env.REACT_APP_ENV === 'development');
+const inDevelopment = (!process.env.APP_ENV || process.env.APP_ENV === 'development');
 
 const app = express();
 
