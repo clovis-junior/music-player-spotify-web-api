@@ -1,63 +1,129 @@
 require('dotenv').config();
 
 const express = require('express');
-const qs = require('querystring');
 const axios = require('axios');
 const cors = require('cors');
+const fs = require('fs');
 
 const app = express();
-const port = 5000;
 
-app.use(cors());
-app.use(express.json());
+const path = './tokens.json';
+const tokens = loadTokens();
+var track_data = [];
 
-const { SPOTIFY_API_CLIENT_ID, SPOTIFY_API_CLIENT_SECRET } = process.env;
+function loadTokens() {
+    if (!fs.existsSync(path))
+        fs.writeFileSync(path, '{}');
 
-var refresh_token, access_token;
+    const data = fs.readFileSync(path, 'utf8');
 
-async function refreshToken() {
+    return JSON.parse(data);
+}
+
+function saveTokens(tokens) {
+    if (fs.existsSync(path))
+        fs.writeFileSync(path, JSON.stringify(tokens, null, 2));      
+}
+
+function updateToken(id, data) {
+    tokens[id] = data;
+
+    return saveTokens(tokens)
+}
+
+async function refreshToken(user) {
+    const params = new URLSearchParams();
+    params.append('grant_type', 'refresh_token');
+    params.append('refresh_token', tokens[user]?.refresh_token);
+    params.append('client_id', process.env.SPOTIFY_API_CLIENT_ID);
+
     try {
-        const response = await axios.get('https://accounts.spotify.com/api/token',
-            new URLSearchParams({
-                'grant_type': 'refresh_token',
-                'refresh_token': refresh_token,
-                'client_id': SPOTIFY_API_CLIENT_ID
-            }), {
+        const response = await axios.post('https://accounts.spotify.com/api/token', params, {
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
         });
 
-        // refresh_token = response.data.refresh_token;
-        access_token = response.data.access_token;
+        updateToken(user, {
+            refresh_token: response.data.refresh_token,
+            access_token: response.data.access_token
+        });
 
-        return await getCurrentSong()
+        return await getCurrentlyPlaying()
     } catch (e) {
         console.error(e.message);
-        res.status(401).json({ error: e.message })
+        return { error: e.message }
     }
 }
 
-async function getCurrentSong() {
+async function getCurrentlyPlaying(user) {
     try {
         const response = await axios.get('https://api.spotify.com/v1/me/player/currently-playing', {
             headers: {
-                'Authorization': `Bearer ${access_token}`,
+                'Authorization': `Bearer ${tokens[user]?.access_token}`,
                 'Content-Type': 'application/json'
             }
         });
 
         if (response.status === 401)
-            return await refreshToken();
+            return await refreshToken(user);
 
-        res.json(response.data);
+        if (response.status !== 200)
+            return { error: response.data }
+
+        return await response.data
     } catch (e) {
         console.error(e.message);
-        res.status(401).json({ error: e.message })
+        return { error: e.message }
     }
 }
 
-app.get('/current-song', async (req, res) => {
+app.use(cors());
+app.use(express.json());
+
+app.get('/login', (req, res) => {
+    const scope = 'user-read-currently-playing user-read-playback-state';
+    const redirect_uri = 'http://localhost/callback';
+
+    const query = new URLSearchParams({
+        response_type: 'code',
+        client_id: process.env.SPOTIFY_API_CLIENT_ID,
+        scope: scope,
+        redirect_uri: redirect_uri
+    });
+
+    res.redirect(`https://accounts.spotify.com/authorize?${query}`);
+});
+app.get('/callback', async (req, res) => {
+    const basicAuth = Buffer.from(`${process.env.SPOTIFY_API_CLIENT_ID}:${process.env.SPOTIFY_API_CLIENT_SECRET}`).toString('base64');
+    const code = req.query.code;
+
+    const params = new URLSearchParams();
+    params.append('grant_type', 'authorization_code');
+    params.append('code', code);
+    params.append('redirect_uri', 'http://localhost/callback');
+
     try {
-        const data = await getCurrentSong();
+        const response = await axios.post('https://accounts.spotify.com/api/token', params, {
+            headers: {
+                'Authorization': `Basic ${basicAuth}`,
+                'Content-Type': 'application/x-www-form-urlencoded'
+            }
+        });
+
+        const id = Date.now().toString();
+        updateToken(id, {
+            refresh_token: response.data.refresh_token,
+            access_token: response.data.access_token
+        });
+
+        res.redirect(`http://localhost:3000/?spotifyToken=${id}`);
+    } catch (e) {
+        console.error(e.message);
+        res.status(401).json({ error: e.message });
+    }
+});
+app.get('/player', async (req, res) => {
+    try {
+        const data = await getCurrentlyPlaying(req.get('user_token'));
 
         res.json(data);
     } catch (e) {
@@ -65,35 +131,7 @@ app.get('/current-song', async (req, res) => {
         res.status(404).json({ error: e.message })
     }
 });
-app.get('/callback', async (req, res) => {
-    const uri = 'https://clovis-junior.github.io/music-player-overlay/';
-    const basicAuth = Buffer.from(`${SPOTIFY_API_CLIENT_ID}:${SPOTIFY_API_CLIENT_SECRET}`).toString('base64');
 
-    try {
-        const response = await axios.get('https://accounts.spotify.com/api/token',
-            new URLSearchParams({
-                'grant_type': 'authorization_code',
-                'code': req.query.code,
-                'redirect_uri': uri,
-                'client_id': SPOTIFY_API_CLIENT_ID,
-                'client_secret': SPOTIFY_API_CLIENT_SECRET
-            }), {
-            headers: {
-                'Authorization': `Basic ${basicAuth}`,
-                'Content-Type': 'application/x-www-form-urlencoded'
-            }
-        });
-
-        refresh_token = response.data.refresh_token;
-        access_token = response.data.access_token;
-
-        res.status(200).redirect(`${uri}spotifyToken=${refresh_token}`)
-    } catch (e) {
-        console.error(e.message);
-        res.status(401).json({ error: e.message })
-    }
+app.listen(80, () => {
+    console.debug(`Spotify API Web listening at http://localhost:80`);
 });
-
-app.listen(port, () => {
-    console.debug(`Spotify API Web listening at http://localhost:${port}`);
-})
