@@ -5,6 +5,8 @@ const axios = require('axios');
 const cors = require('cors');
 const fs = require('fs');
 
+const inDevelopment = (!process.env.NODE_ENV || process.env.REACT_APP_ENV === 'development');
+
 const app = express();
 
 const path = './tokens.json';
@@ -80,8 +82,10 @@ app.use(cors());
 app.use(express.json());
 
 app.get('/login', (req, res) => {
+    const url = inDevelopment ? 'http://localhost:3000' : `${req.protocol}://${req.get('host')}`;
+
     const scope = 'user-read-currently-playing user-read-playback-state';
-    const redirect_uri = 'http://localhost/callback';
+    const redirect_uri = `${url}/callback`;
 
     const query = new URLSearchParams({
         response_type: 'code',
@@ -93,13 +97,14 @@ app.get('/login', (req, res) => {
     res.redirect(`https://accounts.spotify.com/authorize?${query}`);
 });
 app.get('/callback', async (req, res) => {
+    const url = inDevelopment ? 'http://localhost:3000' : `${req.protocol}://${req.get('host')}`;
     const basicAuth = Buffer.from(`${process.env.SPOTIFY_API_CLIENT_ID}:${process.env.SPOTIFY_API_CLIENT_SECRET}`).toString('base64');
     const code = req.query.code;
 
     const params = new URLSearchParams();
     params.append('grant_type', 'authorization_code');
     params.append('code', code);
-    params.append('redirect_uri', 'http://localhost/callback');
+    params.append('redirect_uri', `${url}/callback`);
 
     try {
         const response = await axios.post('https://accounts.spotify.com/api/token', params, {
@@ -109,13 +114,15 @@ app.get('/callback', async (req, res) => {
             }
         });
 
+        const url = inDevelopment ? 'http://localhost:3000' : 'https://clovis-junior.github.io/music-player-overlay/';
+
         const id = Date.now().toString();
         updateToken(id, {
             refresh_token: response.data.refresh_token,
             access_token: response.data.access_token
         });
 
-        res.redirect(`http://localhost:3000/?spotifyToken=${id}`);
+        res.redirect(`${url}/?spotifyToken=${id}`);
     } catch (e) {
         console.error(e.message);
         res.status(401).json({ error: e.message });
@@ -133,5 +140,5 @@ app.get('/player', async (req, res) => {
 });
 
 app.listen(80, () => {
-    console.debug(`Spotify API Web listening at http://localhost:80`);
+    console.debug(`Spotify API Web listening at port 80`);
 });
